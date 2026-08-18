@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>IMU Quaternion Viewer</title>
+    <style>
+      html, body { margin:0; height:100%; overflow:hidden; }
+      #hud {
+        position: absolute; left: 12px; top: 12px;
+        padding: 10px 12px; background: rgba(0,0,0,0.6);
+        color: #fff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        border-radius: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">Connecting...</div>
+
+    <script type="module">
+      import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
+      import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/controls/OrbitControls.js";
+
+      const hud = document.getElementById("hud");
+
+      // --- Scene setup ---
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 100);
+      camera.position.set(1.6, 1.2, 2.2);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(0, 0.6, 0);
+      controls.update();
+
+      // Lights
+      scene.add(new THREE.HemisphereLight(undefined, undefined, 1.0));
+      const dir = new THREE.DirectionalLight(undefined, 1.0);
+      dir.position.set(3, 4, 2);
+      scene.add(dir);
+
+      // Grid + axes
+      scene.add(new THREE.GridHelper(10, 10));
+      scene.add(new THREE.AxesHelper(0.5));
+
+      // "Sensor" object (a box)
+      const boxGeo = new THREE.BoxGeometry(0.15, 0.5, 0.08);
+      const boxMat = new THREE.MeshStandardMaterial(); // default color (no forced style)
+      const sensorMesh = new THREE.Mesh(boxGeo, boxMat);
+      sensorMesh.position.set(0, 0.6, 0);
+      scene.add(sensorMesh);
+
+      // Optional: show local axes of the sensor
+      const sensorAxes = new THREE.AxesHelper(0.25);
+      sensorMesh.add(sensorAxes);
+
+      // --- WebSocket to Python ---
+        const ws = new WebSocket("ws://127.0.0.1:8765");
+
+      ws.onopen = () => {
+        hud.textContent = "Connected. Waiting for data...";
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const [w, x, y, z] = msg.quat;
+
+        // Three.js uses quaternion order (x, y, z, w)
+        sensorMesh.quaternion.set(x, y, z, w);
+
+        hud.textContent = `sensor=${msg.sensor_id}  t=${msg.t_sec.toFixed(2)}s  quat(wxyz)=[${w.toFixed(3)}, ${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)}]`;
+      };
+
+      ws.onerror = () => {
+        hud.textContent = "WebSocket error. Is Python running?";
+      };
+
+      ws.onclose = () => {
+        hud.textContent = "Disconnected.";
+      };
+
+      // Render loop
+      function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>

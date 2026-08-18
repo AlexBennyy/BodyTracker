@@ -1,0 +1,10 @@
+build/
+__pycache__/
+*.pyc
+.cache/
+.DS_Store
+_imu_cpp*.so
+compile_commands.json
+
+# Unrelated dataset that ended up in this directory -- not part of this project
+train.csv

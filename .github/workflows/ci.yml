@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cpu-build-and-test:
+    # CPU-only: GitHub-hosted runners have no GPU, so CUDA is left to
+    # auto-disable (CMakeLists.txt's check_language(CUDA) finds no nvcc here)
+    # rather than being force-enabled. gpu_benchmark is not built or run in CI.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Homebrew)
+        run: brew install cmake pybind11 googletest google-benchmark
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Run C++ unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run CPU benchmark (smoke run, short)
+        run: ./build/cpu_benchmark --benchmark_min_time=0.05s
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install numpy
+
+      - name: Python parity test (C++ backend vs. pure-Python fallback)
+        run: python3 tests/test_parity.py -v
