@@ -1,0 +1,3 @@
+session_id,file,format,label,subject,notes
+curl_bicep_01,example_imu_two_sensors_curl_50hz.csv,curl_csv,bicep_curl,alex,synthetic 20s bicep curl demo (forearm+bicep dual-IMU)
+mpu_dual_log_01,mpu_dual_log.csv,raw_dual,,alex,"real hardware capture but no exercise label recorded yet -- fill in label once you know what it was, or delete the row"
