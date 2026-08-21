@@ -14,10 +14,12 @@ detail the sequence model sees is worth its added complexity.
 
 **Findings:** *In progress.* The windowing/labeling stage (notebook 1) is complete and produces a clean, labeled feature table with no
 missing values. Only one exercise (`bicep_curl`) is labeled so far, from a synthetic 20s two-sensor demo recording; a second real
-hardware capture (`mpu_dual_log.csv`) is present but not yet labeled. Model training and comparison (notebooks 2 and 3) have not started
--- this section will be filled in once results exist.
+hardware capture (`mpu_dual_log.csv`) is present but not yet labeled. Notebooks 2 and 3 (classical model and sequence model) are
+implemented end-to-end -- including cross-validation, grid search, and evaluation -- and verified to run correctly against synthetic
+multi-class data, but both gate their modeling/evaluation cells on there being more than one labeled exercise class, so they run
+cleanly today without producing a real result. This section will be filled in with real numbers once a second exercise is recorded.
 
-**Results and conclusion:** *Pending notebooks 2 and 3.*
+**Results and conclusion:** *Pending a second labeled exercise class -- see notebooks 2 and 3's Findings sections.*
 
 **Future research and development:** Recording additional exercises and subjects is the main blocker to a meaningful model comparison --
 with a single class and 18 windows from one subject, no classifier can be evaluated for generalization. Once more classes are recorded,
@@ -69,27 +71,47 @@ and feature-summary plots documented in the notebook itself.
 
 ### Methodology
 
-*Not yet started -- planned for notebooks 2 and 3.*
+Notebooks 2 and 3 are implemented (not just planned) but gated on there being more than one labeled exercise class -- each checks
+`label.nunique() >= 2` up front and skips its modeling/evaluation cells with an explanatory message if not, so both run cleanly
+end-to-end on today's single-class dataset. Both were verified against synthetic multi-class data to confirm the modeling code
+itself (cross-validation, grid search, evaluation) is correct, ready to produce real results the moment a second exercise is
+recorded and labeled.
 
-**Notebook 2 (classical model):** Train and evaluate a random forest / gradient boosting classifier on the aggregated per-window
-feature table (`data/exercise_windows.csv`), with holdout or cross-validation once multiple classes/subjects are recorded.
+**Notebook 2 (classical model, [`2. Classical_Model_Training_and_Evaluation.ipynb`](<2. Classical_Model_Training_and_Evaluation.ipynb>)):**
+trains a dummy baseline, logistic regression, random forest, and gradient boosting classifier on the aggregated per-window feature
+table (`data/exercise_windows.csv`), compares them with stratified k-fold cross-validation, tunes the random forest with grid
+search, and evaluates the best model on a held-out test set.
 
-**Notebook 3 (sequence model):** Train an LSTM directly on the per-sample feature windows (before aggregation), to compare a model
-that sees the full temporal shape of each rep against notebook 2's summary-statistic approach.
+**Notebook 3 (sequence model, [`3. Sequence_Model_Training_and_Evaluation.ipynb`](<3. Sequence_Model_Training_and_Evaluation.ipynb>)):**
+trains an LSTM/GRU (PyTorch) directly on the per-sample feature windows (before aggregation, via `imu_dataset.build_sequence_dataset`),
+with the same cross-validation/grid-search/held-out-evaluation structure as notebook 2, to compare a model that sees the full
+temporal shape of each rep against notebook 2's summary-statistic approach.
+
+Both notebooks use **macro-averaged F1** as the evaluation metric: every exercise class matters equally regardless of how often it
+appears in the data, which plain accuracy doesn't guarantee once classes are imbalanced across subjects/sessions.
 
 ### Model evaluation and results
 
-*Pending notebooks 2 and 3.*
+*Pending a second labeled exercise class.* Notebooks 2 and 3's Findings sections currently hold a template for the write-up: best
+model, notebook-2-vs-notebook-3 comparison, confusion-matrix error analysis, and actionable recommendation.
+
+All three notebooks follow the same layout -- **Business Understanding -> Data Understanding -> Data Preparation -> [Modeling ->
+Evaluation ->] Findings -> Next Steps** (notebooks 2 and 3 add the bracketed Modeling/Evaluation sections; notebook 1 is a pure
+data-preparation notebook so it goes straight from Data Preparation to Findings) -- so any future notebook 4+ should start from
+whichever of the two already-written notebooks is the closer template.
 
 ### Outline of project
 
 - [Notebook 1: Exercise Windowing & Labeling](<1. IMU_Exercise_Windowing_and_Labeling.ipynb>) -- raw sessions to a labeled,
   windowed feature table.
-- Notebook 2: classical model training and evaluation -- not yet written.
-- Notebook 3: sequence model (LSTM) training and evaluation -- not yet written.
+- [Notebook 2: Classical Model Training & Evaluation](<2. Classical_Model_Training_and_Evaluation.ipynb>) -- logistic
+  regression / random forest / gradient boosting on the aggregated window features, with cross-validation and grid search.
+- [Notebook 3: Sequence Model Training & Evaluation](<3. Sequence_Model_Training_and_Evaluation.ipynb>) -- LSTM/GRU on the raw
+  per-sample feature windows, with the same cross-validation/grid-search structure as notebook 2.
 - [`manifest.csv`](manifest.csv) -- session index (file, format, label, subject) driving the whole pipeline.
-- [`imu_dataset.py`](imu_dataset.py) -- windowing/aggregation logic shared by all notebooks.
-- [`data/exercise_windows.csv`](data/exercise_windows.csv) -- current output of notebook 1, the input to notebooks 2 and 3.
+- [`imu_dataset.py`](imu_dataset.py) -- windowing/labeling/aggregation logic shared by all notebooks (`build_dataset` for
+  notebook 2's aggregated table, `build_sequence_dataset` for notebook 3's raw sequences).
+- [`data/exercise_windows.csv`](data/exercise_windows.csv) -- current output of notebook 1, the input to notebook 2.
 
 ### Repository layout (engineering pipeline)
 
@@ -108,6 +130,9 @@ that sees the full temporal shape of each rep against notebook 2's summary-stati
 - `imu_dataset.py` -- windowing/labeling logic for the capstone dataset
   (`manifest.csv` -> per-session feature extraction -> time-windowed
   aggregation), used by notebook 1 and shared with notebooks 2/3.
+  `build_dataset` produces notebook 1/2's aggregated per-window statistics
+  table; `build_sequence_dataset` produces notebook 3's raw per-sample
+  per-window sequences (same windowing, no aggregation step).
 - `include/`, `src/` -- the C++ core (`imu_core`): `imu_types.hpp` (POD
   types), `imu_math.{hpp,cpp}` (vector ops, `LowPass3`, `ComplementaryPitch`),
   `imu_processor.{hpp,cpp}` (`calibrate_bias`, `process_batch`), and
@@ -122,6 +147,12 @@ that sees the full temporal shape of each rep against notebook 2's summary-stati
 - `benchmarks/cpu_benchmark.cpp`, `benchmarks/gpu_benchmark.cu` -- Google
   Benchmark harnesses for `process_batch` and `vec3_norm_batch`, structured
   so the CPU and (when built) CUDA numbers are directly comparable.
+
+## Python dependencies
+
+The notebooks and Python pipeline need `numpy`, `pandas`, `matplotlib`, `seaborn`, `scikit-learn`, and (for notebook 3) `torch`.
+There's no `requirements.txt` yet since this has only run against one development environment so far -- `pip install numpy pandas
+matplotlib seaborn scikit-learn torch` covers all three notebooks.
 
 ## Building the C++ core
 

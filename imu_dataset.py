@@ -199,6 +199,75 @@ def build_dataset(
     return df[meta_cols + feature_cols]
 
 
+def build_sequence_dataset(
+    manifest_path: str,
+    repo_root: str = REPO_ROOT,
+    window_sec: float = 2.0,
+    hop_sec: float = 1.0,
+    min_samples: int = 5,
+):
+    """Like build_dataset, but returns raw per-sample feature sequences instead
+    of aggregated summary statistics -- the input a sequence model (e.g. an
+    LSTM) needs, as opposed to the per-window statistics classical models use.
+
+    Windows vary by a sample or two in length near session boundaries, so
+    every window is truncated to the shortest length seen, giving one fixed
+    sequence length across the whole dataset.
+
+    Returns (X, y, meta): X is (n_windows, seq_len, n_features) float32 (the
+    same _AGG_FIELDS feature order as build_dataset's column names, minus the
+    per-window aggregation), y is (n_windows,) label strings, and meta is a
+    DataFrame with session_id / window_index / label / subject, aligned
+    row-for-row with X and y.
+    """
+    manifest = load_manifest(manifest_path)
+    window_ms, hop_ms = window_sec * 1000.0, hop_sec * 1000.0
+
+    windows = []  # (lo, hi, feat, session_id, window_index, label, subject)
+    for _, session in manifest.iterrows():
+        if not session["label"].strip():
+            continue
+        fmt = session["format"].strip()
+        loader = SESSION_LOADERS.get(fmt)
+        if loader is None:
+            raise ValueError(
+                f"{session['session_id']!r}: unknown format {fmt!r}, "
+                f"expected one of {sorted(SESSION_LOADERS)}"
+            )
+
+        path = os.path.join(repo_root, session["file"])
+        t_ms, a1, g1, a2, g2 = loader(path)
+        feat = imu_batch.process_batch(
+            t_ms, a1, g1, a2, g2, gyro_units=FORMAT_GYRO_UNITS[fmt]
+        )
+        if len(feat["t_ms"]) == 0:
+            continue
+
+        for w, (lo, hi) in enumerate(iter_windows(feat["t_ms"], window_ms, hop_ms)):
+            if hi - lo < min_samples:
+                continue
+            windows.append(
+                (lo, hi, feat, session["session_id"], w, session["label"], session.get("subject", ""))
+            )
+
+    if not windows:
+        raise ValueError("no windows produced -- check manifest labels and window_sec/hop_sec")
+
+    seq_len = min(hi - lo for lo, hi, *_ in windows)
+    X = np.stack([
+        np.stack([feat[name][lo:lo + seq_len] for name in _AGG_FIELDS], axis=-1)
+        for lo, hi, feat, *_ in windows
+    ]).astype(np.float32)
+    y = np.array([w[5] for w in windows])
+    meta = pd.DataFrame({
+        "session_id": [w[3] for w in windows],
+        "window_index": [w[4] for w in windows],
+        "label": y,
+        "subject": [w[6] for w in windows],
+    })
+    return X, y, meta
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--manifest", default=os.path.join(REPO_ROOT, "manifest.csv"))
